@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BNB Smart Chain USDT Transfer</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.6.3/dist/ethers.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 1rem;
+      background: #f7f7f7;
+    }
+    input, button {
+      padding: 0.5rem;
+      margin: 0.3rem 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 1rem;
+      display: block;
+    }
+    #txHash, #decodeInfo {
+      margin-top: 1rem;
+      padding: 0.7rem;
+      background: #eef;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+
+<h1>BNB Smart Chain USDT Transfer</h1>
+
+<label for="recipient">Recipient Address:</label>
+<input type="text" id="recipient" placeholder="0x..." />
+
+<label for="amount">Amount (USDT):</label>
+<input type="number" id="amount" step="0.01" value="2778.78" />
+
+<button id="sendBtn">Send USDT</button>
+
+<div id="txHash"></div>
+
+<hr />
+
+<h2>Decode Transaction Hash</h2>
+<label for="hashInput">Enter Transaction Hash:</label>
+<input type="text" id="hashInput" placeholder="0x..." />
+<button id="decodeBtn">Get Transaction Details</button>
+
+<div id="decodeInfo"></div>
+
+<script>
+  const USDT_ADDRESS = "0x55d398326f99059ff775485246999027b3197955"; // BSC USDT
+  const USDT_ABI = [
+    "function transfer(address to, uint amount) returns (bool)"
+  ];
+  const provider = new ethers.BrowserProvider(window.ethereum, "any");
+
+  async function sendUSDT() {
+    if (!window.ethereum) {
+      alert("MetaMask or another Ethereum wallet is required.");
+      return;
+    }
+
+    const recipient = document.getElementById("recipient").value.trim();
+    const amountInput = document.getElementById("amount").value;
+    if (!ethers.isAddress(recipient)) {
+      alert("Invalid recipient address.");
+      return;
+    }
+    if (!amountInput || Number(amountInput) <= 0) {
+      alert("Enter a valid amount.");
+      return;
+    }
+
+    try {
+      // Request accounts & connect
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const signer = await provider.getSigner();
+
+      const usdtContract = new ethers.Contract(USDT_ADDRESS, USDT_ABI, signer);
+
+      // USDT on BSC uses 18 decimals
+      const decimals = 18;
+      const amount = ethers.parseUnits(amountInput, decimals);
+
+      // Send transaction
+      const txResponse = await usdtContract.transfer(recipient, amount);
+      document.getElementById("txHash").textContent = "Transaction sent. Waiting for confirmation...\nHash: " + txResponse.hash;
+
+      // Wait for confirmation
+      await txResponse.wait();
+
+      document.getElementById("txHash").textContent = "Transaction confirmed!\nHash: " + txResponse.hash;
+
+    } catch (err) {
+      console.error(err);
+      alert("Error sending transaction: " + (err.message || err));
+    }
+  }
+
+  async function decodeTx() {
+    const hash = document.getElementById("hashInput").value.trim();
+    if (!hash.startsWith("0x") || hash.length !== 66) {
+      alert("Enter a valid transaction hash.");
+      return;
+    }
+
+    try {
+      const tx = await provider.getTransaction(hash);
+      if (!tx) {
+        document.getElementById("decodeInfo").textContent = "Transaction not found or pending.";
+        return;
+      }
+
+      // Display basic info
+      let info = `Hash: ${tx.hash}\n`;
+      info += `From: ${tx.from}\n`;
+      info += `To: ${tx.to}\n`;
+      info += `Value: ${ethers.formatEther(tx.value)} BNB\n`;
+      info += `Gas Price: ${tx.gasPrice ? ethers.formatUnits(tx.gasPrice, "gwei") + " gwei" : "N/A"}\n`;
+      info += `Nonce: ${tx.nonce}\n`;
+      info += `Data (hex): ${tx.data}\n`;
+
+      document.getElementById("decodeInfo").textContent = info;
+    } catch (err) {
+      console.error(err);
+      alert("Error fetching transaction: " + (err.message || err));
+    }
+  }
+
+  document.getElementById("sendBtn").addEventListener("click", sendUSDT);
+  document.getElementById("decodeBtn").addEventListener("click", decodeTx);
+</script>
+
+</body>
+</html>
