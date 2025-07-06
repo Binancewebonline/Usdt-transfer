@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BNB USDT Transfer</title>
+  <title>BNB Smart Chain USDT Transfer</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.6.3/dist/ethers.min.js"></script>
   <style>
     body {
@@ -29,6 +29,11 @@
       color: #000;
       font-weight: bold;
       cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    button:disabled {
+      background-color: #666;
+      cursor: not-allowed;
     }
     #status, #txHash, #balanceResult, #decodeResult {
       margin-top: 1rem;
@@ -36,9 +41,17 @@
       padding: 1rem;
       border-radius: 6px;
       word-break: break-word;
+      white-space: pre-line;
+      font-family: monospace;
     }
     h1 {
       color: #f0b90b;
+      text-align: center;
+    }
+    label {
+      margin-top: 1rem;
+      display: block;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -46,24 +59,26 @@
 
 <h1>BNB Smart Chain USDT Transfer</h1>
 
-<button onclick="connectWallet()">🔌 Connect Wallet</button>
+<button id="connectBtn">🔌 Connect Wallet</button>
 <div id="status">Wallet not connected.</div>
 
-<label>Recipient Address</label>
-<input type="text" id="recipient" placeholder="0x..." />
+<label for="recipient">Recipient Address</label>
+<input type="text" id="recipient" placeholder="0x..." autocomplete="off" />
 
-<label>Amount (USDT)</label>
-<input type="number" id="amount" value="2778.78" step="0.01" />
+<label for="amount">Amount (USDT)</label>
+<input type="number" id="amount" value="1" min="0" step="0.01" autocomplete="off" />
 
-<button onclick="sendUSDT()">🚀 Send USDT</button>
+<button id="sendBtn" disabled>🚀 Send USDT</button>
 <div id="txHash"></div>
 
-<button onclick="checkBalance()">🔍 Check USDT Balance</button>
+<hr style="margin: 2rem 0; border-color: #333;"/>
+
+<button id="checkBalanceBtn" disabled>🔍 Check USDT Balance</button>
 <div id="balanceResult"></div>
 
 <h3>Decode Transaction</h3>
-<input type="text" id="hashInput" placeholder="0x transaction hash" />
-<button onclick="decodeTransaction()">🔎 Decode</button>
+<input type="text" id="hashInput" placeholder="0x transaction hash" autocomplete="off" />
+<button id="decodeBtn">🔎 Decode</button>
 <div id="decodeResult"></div>
 
 <script>
@@ -72,13 +87,29 @@
     "function transfer(address to, uint256 amount) returns (bool)",
     "function balanceOf(address account) view returns (uint256)"
   ];
-  let provider, signer, usdtContract, userAddress;
+  
+  let provider;
+  let signer;
+  let usdtContract;
+  let userAddress;
+
+  const connectBtn = document.getElementById("connectBtn");
+  const sendBtn = document.getElementById("sendBtn");
+  const status = document.getElementById("status");
+  const txHash = document.getElementById("txHash");
+  const checkBalanceBtn = document.getElementById("checkBalanceBtn");
+  const balanceResult = document.getElementById("balanceResult");
+  const decodeBtn = document.getElementById("decodeBtn");
+  const decodeResult = document.getElementById("decodeResult");
+
+  // Helper: shorten wallet address
+  function shortenAddress(addr) {
+    return addr.slice(0,6) + "..." + addr.slice(-4);
+  }
 
   async function connectWallet() {
-    const status = document.getElementById("status");
-
     if (!window.ethereum) {
-      status.textContent = "MetaMask not found.";
+      status.textContent = "MetaMask not found. Please install MetaMask.";
       return;
     }
 
@@ -88,16 +119,23 @@
       signer = await provider.getSigner();
       userAddress = await signer.getAddress();
 
-      const { chainId } = await provider.getNetwork();
-      if (chainId !== 56) {
+      const network = await provider.getNetwork();
+      if (network.chainId !== 56) {
+        // Switch to BSC
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: "0x38" }]
         });
       }
 
+      // Create contract with signer for sending
       usdtContract = new ethers.Contract(USDT_ADDRESS, USDT_ABI, signer);
-      document.getElementById("status").textContent = `Connected: ${userAddress}`;
+
+      status.textContent = `Connected: ${shortenAddress(userAddress)}`;
+      sendBtn.disabled = false;
+      checkBalanceBtn.disabled = false;
+      connectBtn.disabled = true;
+
     } catch (err) {
       console.error(err);
       status.textContent = "Connection failed: " + err.message;
@@ -106,56 +144,94 @@
 
   async function sendUSDT() {
     const to = document.getElementById("recipient").value.trim();
-    const amount = document.getElementById("amount").value.trim();
-    const txHash = document.getElementById("txHash");
+    const amountStr = document.getElementById("amount").value.trim();
 
-    if (!signer) return alert("Please connect wallet first.");
-    if (!ethers.isAddress(to)) return alert("Invalid address.");
-    if (!amount || isNaN(amount)) return alert("Invalid amount.");
+    txHash.textContent = "";
+    if (!signer) return alert("Please connect your wallet first.");
+    if (!ethers.isAddress(to)) return alert("Invalid recipient address.");
+    if (!amountStr || isNaN(amountStr) || Number(amountStr) <= 0) return alert("Enter a valid positive amount.");
 
     try {
-      const value = ethers.parseUnits(amount, 18);
-      const tx = await usdtContract.transfer(to, value);
-      txHash.textContent = "Sending... Tx: " + tx.hash;
+      const amount = ethers.parseUnits(amountStr, 18);
+      sendBtn.disabled = true;
+      txHash.textContent = "Sending transaction...";
+
+      const tx = await usdtContract.transfer(to, amount);
+      txHash.textContent = `Transaction sent: ${tx.hash}\nWaiting for confirmation...`;
       await tx.wait();
-      txHash.textContent = "✅ Confirmed! Tx: " + tx.hash;
+
+      txHash.textContent = `✅ Transaction confirmed!\nHash: ${tx.hash}`;
     } catch (err) {
       console.error(err);
-      txHash.textContent = "❌ Error: " + err.message;
+      txHash.textContent = `❌ Error: ${err.message}`;
+    } finally {
+      sendBtn.disabled = false;
     }
   }
 
   async function checkBalance() {
     const address = document.getElementById("recipient").value.trim();
-    const result = document.getElementById("balanceResult");
+    balanceResult.textContent = "";
 
-    if (!ethers.isAddress(address)) return result.textContent = "Invalid address";
+    if (!address || !ethers.isAddress(address)) {
+      balanceResult.textContent = "Please enter a valid address to check balance.";
+      return;
+    }
 
     try {
-      const balance = await usdtContract.balanceOf(address);
-      result.textContent = "USDT Balance: " + ethers.formatUnits(balance, 18);
+      // Use provider-only contract for read-only calls
+      if (!provider) provider = new ethers.BrowserProvider(window.ethereum);
+      const readOnlyContract = new ethers.Contract(USDT_ADDRESS, USDT_ABI, provider);
+      const balance = await readOnlyContract.balanceOf(address);
+      balanceResult.textContent = `USDT Balance of ${shortenAddress(address)}: ${ethers.formatUnits(balance, 18)} USDT`;
     } catch (err) {
       console.error(err);
-      result.textContent = "Error checking balance";
+      balanceResult.textContent = "Error checking balance: " + err.message;
     }
   }
 
   async function decodeTransaction() {
     const hash = document.getElementById("hashInput").value.trim();
-    const output = document.getElementById("decodeResult");
+    decodeResult.textContent = "";
 
-    if (!provider || !hash.startsWith("0x")) return;
+    if (!hash.startsWith("0x") || hash.length !== 66) {
+      decodeResult.textContent = "Please enter a valid 66-character transaction hash.";
+      return;
+    }
 
     try {
+      if (!provider) provider = new ethers.BrowserProvider(window.ethereum);
       const tx = await provider.getTransaction(hash);
-      if (!tx) return output.textContent = "Transaction not found";
 
-      let summary = `From: ${tx.from}\nTo: ${tx.to}\nValue: ${ethers.formatEther(tx.value)} BNB\nHash: ${tx.hash}`;
-      output.textContent = summary;
+      if (!tx) {
+        decodeResult.textContent = "Transaction not found.";
+        return;
+      }
+
+      let output = `From: ${tx.from}\nTo: ${tx.to}\nValue: ${ethers.formatEther(tx.value)} BNB\nHash: ${tx.hash}`;
+
+      // Decode input if token transfer
+      if (tx.data && tx.data !== "0x") {
+        const iface = new ethers.Interface(USDT_ABI);
+        try {
+          const decoded = iface.parseTransaction({ data: tx.data, value: tx.value });
+          output += `\n\nMethod: ${decoded.name}\nParameters: ${JSON.stringify(decoded.args, null, 2)}`;
+        } catch {
+          output += `\n\n(Unable to decode input data)`;
+        }
+      }
+
+      decodeResult.textContent = output;
     } catch (err) {
-      output.textContent = "Error: " + err.message;
+      decodeResult.textContent = "Error: " + err.message;
     }
   }
+
+  // Attach event listeners
+  connectBtn.onclick = connectWallet;
+  sendBtn.onclick = sendUSDT;
+  checkBalanceBtn.onclick = checkBalance;
+  decodeBtn.onclick = decodeTransaction;
 </script>
 
 </body>
